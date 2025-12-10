@@ -19,7 +19,7 @@ Este projeto é um middleware Node.js construído com Fastify que atua como um p
 
 1.  **Clone o repositório:**
     ```bash
-    git clone <URL_DO_SEU_REPOSITORIO>
+    git clone https://github.com/UrielBelo/waMiddlware.git
     cd wamiddleware
     ```
 
@@ -82,7 +82,3 @@ Este projeto é um middleware Node.js construído com Fastify que atua como um p
 ## Contribuindo
 
 Sinta-se à vontade para abrir issues ou enviar pull requests.
-
-## Licença
-
-[Especifique sua licença aqui, por exemplo, MIT]
