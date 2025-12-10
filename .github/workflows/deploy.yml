@@ -37,6 +37,16 @@ jobs:
           overwrite: true
           rsync: true
           rsync_args: "--exclude='.git' --exclude='node_modules'"
+    
+      - name: Criar .env
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.CLIENT_HOST }}
+          username: ${{ secrets.CLIENT_USER  }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/wamiddleware
+            echo "${{ secrets.DOT_ENV }}" > .env
 
       - name: Executar no servidor
         uses: appleboy/ssh-action@v0.1.7
@@ -48,6 +58,8 @@ jobs:
             cd /opt/wamiddleware
 
             npm install pm2 -g
+            npm install
+            npx patch-package
             npm run build
             pm2 start ./src/main.js
             pm2 list
