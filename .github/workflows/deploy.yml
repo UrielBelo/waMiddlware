@@ -55,6 +55,9 @@ jobs:
           username: ${{ secrets.CLIENT_USER  }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            export NVM_DIR="/root/.nvm"
+            source "$NVM_DIR/nvm.sh"
+
             cd /opt/wamiddleware
 
             npm install pm2 -g
