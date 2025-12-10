@@ -1,0 +1,235 @@
+diff --git a/node_modules/whatsapp/build/api/webhooks.js b/node_modules/whatsapp/build/api/webhooks.js
+index c8398aa..09cffac 100644
+--- a/node_modules/whatsapp/build/api/webhooks.js
++++ b/node_modules/whatsapp/build/api/webhooks.js
+@@ -33,7 +33,6 @@ class WebhooksAPI extends base_1.default {
+       res.setHeader('User-Agent', this.userAgent);
+       if (req.url) {
+         const requestPath = new URL(req.url, `https://${req.headers.host}`);
+-        LOGGER.log(`received request (method: ${req.method}) for URL ${requestPath}`);
+         if (requestPath.pathname == `/${this.config[enums_1.WAConfigEnum.WebhookEndpoint]}`) {
+           if (req.method === 'GET') {
+             if (requestPath.searchParams.get('hub.mode') == 'subscribe' && requestPath.searchParams.get('hub.verify_token') == this.config[enums_1.WAConfigEnum.WebhookVerificationToken]) {
+@@ -49,33 +48,24 @@ class WebhooksAPI extends base_1.default {
+               cb(responseStatus, req.headers, undefined, undefined, new Error(errorMessage));
+             }
+           } else if (req.method === 'POST' && req.headers['x-hub-signature-256']) {
+-            //Removing the prepended 'sha256=' string
+-            const xHubSignature = req.headers['x-hub-signature-256'].toString().replace('sha256=', '');
+-            let bodyBuf = [];
++            let bodyBuf = '';
+             req.on('data', chunk => {
+               bodyBuf = bodyBuf + chunk; // linter bug where push() and "+=" throws an error
+               if (bodyBuf.length > 1e6) req.destroy(); // close connection if payload is larger than 1MB for some reason
+             });
+ 
+             req.on('end', () => {
+-              const body = Buffer.concat(bodyBuf).toString();
+-              const generatedSignature = (0, utils_1.generateXHub256Sig)(body, this.config[enums_1.WAConfigEnum.AppSecret]);
++              const body = bodyBuf.toString();
+               const cbBody = JSON.parse(body);
+-              if (generatedSignature == xHubSignature) {
+-                const responseStatus = 200;
+-                LOGGER.log('x-hub-signature-256 header matches generated signature');
+-                cb(responseStatus, req.headers, cbBody, res, undefined);
+-              } else {
+-                const errorMessage = "error: x-hub signature doesn't match";
+-                const responseStatus = 401;
+-                LOGGER.log(errorMessage);
+-                res.writeHead(responseStatus);
+-                res.end(errorMessage);
+-                cb(responseStatus, req.headers, cbBody, undefined, new Error(errorMessage));
+-              }
++              const responseStatus = 200;
++              res.writeHead(responseStatus);
++              res.end()
++              cb(responseStatus, req.headers, cbBody, res, undefined);
+             });
+             req.on('error', err => {
+               const responseStatus = 500;
++              res.writeHead(responseStatus);
++              res.end()
+               cb(responseStatus, req.headers, undefined, res, err);
+             });
+           }
+diff --git a/node_modules/whatsapp/build/httpsServer.js b/node_modules/whatsapp/build/httpsServer.js
+index 3d99fe2..b0725c7 100644
+--- a/node_modules/whatsapp/build/httpsServer.js
++++ b/node_modules/whatsapp/build/httpsServer.js
+@@ -13,17 +13,19 @@ Object.defineProperty(exports, "__esModule", {
+ const http_1 = require("http");
+ class Httpserver {
+   constructor(port, cb) {
+-    this.listening = false;
++    this.listening = true;
+     this.sockets = new Set();
+     this.server = (0, http_1.createServer)(cb).listen(port);
+-    this.server.on('connection', socket => {
+-      this.sockets.add(socket);
+-      this.listening = true;
+-      this.server.once('close', () => {
+-        this.sockets.delete(socket);
+-        this.listening = false;
+-      });
+-    });
++    // this.server.on('connection', socket => {
++    //   this.sockets.add(socket);
++    //   const onClose = () => {
++    //       this.sockets.delete(socket);
++    //       this.listening = this.sockets.size > 0;
++    //       socket.removeListener('close', onClose);
++    //   };
++
++    //   this.server.once('close', onClose);
++    // });
+   }
+   isListening() {
+     return this.listening;
+diff --git a/node_modules/whatsapp/build/types/enums.d.ts b/node_modules/whatsapp/build/types/enums.d.ts
+index e8d81d1..0daf0da 100644
+--- a/node_modules/whatsapp/build/types/enums.d.ts
++++ b/node_modules/whatsapp/build/types/enums.d.ts
+@@ -35,6 +35,7 @@ export declare const enum ParametersTypesEnum {
+ }
+ export declare const enum InteractiveTypesEnum {
+     Button = "button",
++    Url = "cta_url",
+     List = "list",
+     Product = "product",
+     ProductList = "product_list"
+@@ -80,7 +81,8 @@ export declare const enum ConversationTypesEnum {
+ export declare const enum StatusEnum {
+     Delivered = "delivered",
+     Read = "read",
+-    Sent = "sent"
++    Sent = "sent",
++    Failed = "failed"
+ }
+ export declare const enum VideoMediaTypesEnum {
+     Mp4 = "video/mp4",
+@@ -121,7 +123,10 @@ export declare const enum WebhookTypesEnum {
+     Sticker = "sticker",
+     System = "system",
+     Unknown = "unknown",
+-    Video = "video"
++    Video = "video",
++    Location = "location",
++    Contacts = "contacts",
++    Unsupported = "unsupported"
+ }
+ export declare const enum SystemChangeTypesEnum {
+     CustomerChangedNumber = "customer_changed_number",
+diff --git a/node_modules/whatsapp/build/types/messages.d.ts b/node_modules/whatsapp/build/types/messages.d.ts
+index 8f29117..8ea1f78 100644
+--- a/node_modules/whatsapp/build/types/messages.d.ts
++++ b/node_modules/whatsapp/build/types/messages.d.ts
+@@ -153,7 +153,7 @@ type ActionObject = {
+     buttons?: ReplyButtonObject[];
+     catalog_id?: string;
+     product_retailer_id?: string;
+-    sections?: SectionObject;
++    sections?: SectionObject[];
+ };
+ type HeaderObject = {
+     type: 'document' | 'image' | 'text' | 'video';
+@@ -169,6 +169,20 @@ type ButtonInteractiveObject = {
+     header?: HeaderObject;
+     action: ActionObject;
+ };
++
++type UrlInteractiveObject = {
++    type: InteractiveTypesEnum.Url;
++    body: SimpleTextObject;
++    footer?: SimpleTextObject;
++    header?: HeaderObject;
++    action: {
++        name:string,
++        parameters: {
++            display_text: string;
++            url: string;
++        }
++    };
++}
+ type ListInteractiveObject = {
+     type: InteractiveTypesEnum.List;
+     body: SimpleTextObject;
+@@ -190,7 +204,7 @@ type ProductListInteractiveObject = {
+     header: HeaderObject;
+     action: ActionObject;
+ };
+-export type InteractiveObject = ButtonInteractiveObject | ListInteractiveObject | ProductInteractiveObject | ProductListInteractiveObject;
++export type InteractiveObject = ButtonInteractiveObject | ListInteractiveObject | ProductInteractiveObject | ProductListInteractiveObject | UrlInteractiveObject;
+ export type InteractiveMessageRequestBody = MessageRequestBody<MessageTypesEnum.Interactive> & {
+     [MessageTypesEnum.Interactive]: InteractiveObject;
+ };
+@@ -233,7 +247,7 @@ export type VideoMessageRequestBody = MessageRequestBody<MessageTypesEnum.Video>
+     [MessageTypesEnum.Video]: [VideoMediaObject];
+ };
+ type LanguageObject = {
+-    policystring: 'deterministic';
++    policystring?: 'deterministic';
+     code: LanguagesEnum;
+ };
+ type ParametersObject<T extends ParametersTypesEnum> = {
+diff --git a/node_modules/whatsapp/build/types/webhooks.d.ts b/node_modules/whatsapp/build/types/webhooks.d.ts
+index b3fc9eb..caf6254 100644
+--- a/node_modules/whatsapp/build/types/webhooks.d.ts
++++ b/node_modules/whatsapp/build/types/webhooks.d.ts
+@@ -78,20 +78,18 @@ type ImageObject = {
+     mime_type: ImageMediaTypesEnum;
+ };
+ type ButtonReplyObject = {
+-    button_reply: {
+-        id: string;
+-        title: string;
+-    };
++    id: string;
++    title: string;
+ };
+ type ListReplyObject = {
+-    list_reply: {
+-        id: string;
+-        title: string;
+-        description: string;
+-    };
++    id: string;
++    title: string;
++    description: string;
+ };
+ type InteractiveObject = {
+-    type: ButtonReplyObject | ListReplyObject;
++    type: 'button_reply' | 'list_reply';
++    list_reply?: ListReplyObject;
++    button_reply?: ButtonReplyObject;
+ };
+ type ProductItemsObject = {
+     product_retailer_id: string;
+@@ -150,6 +148,28 @@ export type MessagesObject = {
+     timestamp: string;
+     type: WebhookTypesEnum;
+     video?: VideoObject;
++    sticker?: {
++        mime_type: string,
++        sha256: string,
++        id: string,
++        animated: boolean,
++    }
++    location?: {
++        latitude: number;
++        longitude: number;
++    };
++    contacts?: {
++        name: {
++            first_name:string | undefined,
++            formatted_name:string | undefined,
++            last_name: string | undefined,
++        },
++        phones:{
++            phone:string,
++            wa_id:string | undefined,
++            type:string
++        }[] | undefined
++    }[]
+ };
+ type ProfileObject = {
+     name: string;
